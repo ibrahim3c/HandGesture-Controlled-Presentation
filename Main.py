@@ -1,100 +1,128 @@
-import time
+from cvzone.HandTrackingModule import HandDetector
 import cv2 as cv
 import os
-from cvzone.HandTrackingModule import HandDetector
 import numpy as np
 
-
 # vars
-width,height=1280,720
-folderPath="images"
+width, height = 1280, 720
+threshold = 250
+folderPath = "images"
 
-# camera
+imgList = []
+delay = 25
+buttonPressed = False
+counter = 0
+imgNumber = 0
+delayCounter = 0
+annotations = [[]]
+annotationNumber = -1
+annotationStart = False
+hs, ws = int(120 * 1), int(213 * 1)  # width and height of small image
+
+
+# Camera Setup
 cap = cv.VideoCapture(0)
 cap.set(3, width)
 cap.set(4, height)
 
-# get presentation images in list
-# i want to sort them by name
-ImagesPath=sorted(os.listdir(folderPath),key=lambda x:int(x.split('.')[0]))
-print(ImagesPath)
+# Hand Detector
+Detector = HandDetector(detectionCon=0.8, maxHands=1)
 
-# vars
-imgNumber=0
-hMyImage,wMyImage=int(120*1),int(213*1)
-threshold=400
-buttonPressed=False
-buttonCounter=0
-buttonDelay=30
-slideswidth,slidesheight=500,500
 
-# hand detector
-detector=HandDetector(detectionCon=0.8,maxHands=1)
+# Get list of presentation images
+pathImages = os.listdir(folderPath)
+pathImages.sort(key=lambda x: int(os.path.splitext(x)[0]))
+# pathImages = sorted(os.listdir(folderPath), key=len)
+
 
 while True:
-    # get images
+    # Get image frame
     success, img = cap.read()
-    # i want to flip the image horizontally => for mirroring affect 
-    img=cv.flip(img,1)
-    print(ImagesPath[imgNumber])
-    FullPathImage=os.path.join(folderPath,ImagesPath[imgNumber])
-    slides=cv.imread(FullPathImage)
+    img = cv.flip(img, 1)
+    pathFullImage = os.path.join(folderPath, pathImages[imgNumber])
+    slides = cv.imread(pathFullImage)
 
-    # hand detection
-    hands, img=detector.findHands(img)
-
+    # Find the hand 
+    hands, img = Detector.findHands(img) 
     # draw line for threshold 
-    cv.line(img,(0,threshold),(width,threshold),(255,0,0),8)
+    cv.line(img, (0, threshold), (width, threshold), (0, 255, 0), 8)
+
+    if hands and not buttonPressed :  # If hand is detected
+
+        hand = hands[0]
+        cx, cy = hand["center"]
+        fingers = Detector.fingersUp(hand)  # list of fingers up
 
 
-
-    if hands and not buttonPressed:
-        # cuz we want only one hand
-        hand=hands[0]
-        fingers=detector.fingersUp(hand)
-
-         # if value above threshold => hand detected
-        if hand['center'][1]<threshold:
-
-            # Gesture 1 =>left
-            if fingers==[1,0,0,0,0]:
-               print("left")
-               if imgNumber > 0:
+        if cy <= threshold:  # If hand is at the height of the face
+            if fingers == [1, 0, 0, 0, 0]:
+                print("Left")
+                buttonPressed = True
+                if imgNumber > 0:
                     imgNumber -= 1
-                    buttonPressed=True
-            # Gesture 1 =>right
-            if fingers==[0,0,0,0,1]:
-               if imgNumber < len(ImagesPath) - 1:
+                    annotations = [[]]
+                    annotationNumber = -1
+                    annotationStart = False
+
+            if fingers == [0, 0, 0, 0, 1]:
+                print("Right")
+                buttonPressed = True
+                if imgNumber < len(pathImages) - 1:
                     imgNumber += 1
-                    buttonPressed=True
+                    annotations = [[]]
+                    annotationNumber = -1
+                    annotationStart = False
 
-        # gesture 3 => show pointer
+        # Gesture 3 => show pointer
         # it is not limited to above threshold
-        if fingers==[0,1,1,0,0]:
-            indexFinger=hand['lmList'][8]
-            xval=int(np.interp(indexFinger[0],(width // 2,w),(0,width)))
-            yval=int(np.interp(indexFinger[1],(150,height-150),(0,height)))
-            indexFinger=xval,yval
-            cv.circle(slides,(indexFinger[0],indexFinger[1]),10,(0,255,0),cv.FILLED)
-    
-    # button pressed iteration
+        # Constrain values fordrawing => to make it smooth
+        lmList = hand["lmList"]  # List of 21 Landmark points
+        xVal = int(np.interp(lmList[8][0], [width // 2, width], [0, width]))
+        yVal = int(np.interp(lmList[8][1], [150, height-150], [0, height]))
+        indexFinger = xVal, yVal
+        if fingers == [0, 1, 1, 0, 0]:
+            cv.circle(slides, indexFinger, 9, (0, 0, 255), cv.FILLED)
+
+        # Gesture 4 => draw
+        # it is not limited to above threshold
+        if fingers == [0, 1, 0, 0, 0]:
+            if not annotationStart :
+                annotationStart = True
+                annotationNumber += 1
+                annotations.append([])
+            annotations[annotationNumber].append(indexFinger)
+            cv.circle(slides, indexFinger, 8, (0, 0, 255), cv.FILLED)
+
+        else:
+            annotationStart = False
+
+        if fingers == [0, 1, 1, 1, 0]:
+            if annotations:
+                annotations.pop(-1)
+                annotationNumber -= 1
+                buttonPressed = True
+
+    else:
+        annotationStart = False
+
     if buttonPressed:
-        buttonCounter+=1
-        # buttonDelay is number of frames to wait after button press
-        if buttonCounter>buttonDelay:
-            buttonCounter=0     
-            buttonPressed=False
+        counter += 1
+        if counter > delay:
+            counter = 0
+            buttonPressed = False
 
+    for i, annotation in enumerate(annotations):
+        for j in range(len(annotation)):
+            if j != 0:
+                cv.line(slides, annotation[j - 1], annotation[j], (0, 0, 200), 12)
 
-    # resize my image and put it in slide 
-    myImage=cv.resize(img,(wMyImage,hMyImage))
-    h,w,c=slides.shape
-    slides[0:hMyImage,w-wMyImage:w]=myImage
-    print(hMyImage,wMyImage)
+    sImage = cv.resize(img, (ws, hs))
+    h, w, _ = slides.shape
+    slides[0:hs, w - ws: w] = sImage
 
-    # display
-    # cv.imshow("Image", img)
-    cv.imshow("slides", slides)
+    cv.imshow("Image", img)
+    cv.imshow("Slides", slides)
 
-    if cv.waitKey(1) & 0xFF == ord('q'):
+    key = cv.waitKey(1)
+    if key == ord('q'):
         break
