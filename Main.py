@@ -5,8 +5,9 @@ import numpy as np
 
 # constants
 width, height = 1280, 720
+wSlide, hSlide = 1200, 650
 threshold = 300
-folderPath = "images"
+folderPath = "presentation"
 hs, ws = int(120 * 1), int(213 * 1)  # width and height of small image
 delay = 25
 
@@ -177,6 +178,7 @@ while True:
     else:
         annotationStart = True
 
+    # delaly
     if buttonPressed:
         counter += 1
         if counter > delay:
@@ -190,6 +192,8 @@ while True:
                 
 
     sImage = cv.resize(img, (ws, hs))
+    # change size of slides
+    slides=cv.resize(slides,(wSlide, hSlide))
     h, w, _ = slides.shape
     slides[0:hs, w - ws: w] = sImage
 
